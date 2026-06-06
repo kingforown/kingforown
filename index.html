@@ -50,7 +50,8 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbwHpk2AqTqIkzALYkACzH-KcJQJfG8UOUpbBoSY2Slg6zMJFkVoxkRRIkWzFWfQY2uLrg/exec";
+        // Replace with your real Google Script Web App URL Deployment Link
+        const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbxRFNA-xKVOl3TDV9GDQvGxmtft2RnnCrMIITFyV0Eg-XJMck_McVs-VtbfUDqEaqy0qA/exec";
 
         const Icon = ({ name, className = "w-4 h-4" }) => {
             const iconRef = useRef(null);
@@ -97,6 +98,7 @@
             
             const [isAddOpen, setIsAddOpen] = useState(false);
             const [isEditOpen, setIsEditOpen] = useState(false);
+            const [deleteConfirmationId, setDeleteConfirmationId] = useState(null);
             const [currentCard, setCurrentCard] = useState(null);
             const [toasts, setToasts] = useState([]);
 
@@ -105,7 +107,7 @@
                 cardNumber: '', expiryMonth: '01', expiryYear: '2026', cvv: '', cardType: 'Visa',
                 themeId: 'cosmic', accountNumber: '', ifscCode: '', socialPlatform: '', socialUser: '', socialPass: '',
                 title: '', websiteUrl: '', username: '', password: '', notes: '',
-                credit_or_debit: 'CREDIT'
+                credit_or_debit: 'CREDIT', isPinned: 'false'
             });
 
             const currentYearNum = new Date().getFullYear();
@@ -175,7 +177,8 @@
 
             const handleCloudUnlock = (e) => {
                 if (e && e.preventDefault) e.preventDefault();
-                setAuthFeedback('Contacting database firewall...');
+                setAuthFeedback('Verifying credentials against cloud mainframe...');
+                setSyncStatus('SAVING');
                 const callbackName = 'auth_' + Math.round(100000 * Math.random());
                 
                 window[callbackName] = function(res) {
@@ -183,12 +186,15 @@
                         setActivePassword(passwordInput);
                         setIsAuthenticated(true);
                         setAuthFeedback("");
+                        setSyncStatus('SUCCESS');
                         fetchFromGoogleSheet();
                     } else if (res.status === "BLOCKED") {
                         setIsSystemBlocked(true);
                         setAuthFeedback(res.message);
+                        setSyncStatus('FAILED');
                     } else {
-                        setAuthFeedback(res.remainingAttempts !== undefined ? `Access Denied! Remaining attempts: ${res.remainingAttempts}` : `Access Denied!`);
+                        setAuthFeedback(res.remainingAttempts !== undefined ? `Access Denied! Remaining attempts left: ${res.remainingAttempts}` : `Access Denied!`);
+                        setSyncStatus('FAILED');
                     }
                     delete window[callbackName];
                     const scriptEl = document.getElementById(callbackName);
@@ -203,10 +209,14 @@
 
             const fetchFromGoogleSheet = () => {
                 setIsLoading(true);
+                setSyncStatus('SAVING');
                 const callbackName = 'fetch_' + Math.round(100000 * Math.random());
                 window[callbackName] = function(data) {
                     if (data && Array.isArray(data)) {
                         setCards(data);
+                        setSyncStatus('SUCCESS');
+                    } else {
+                        setSyncStatus('FAILED');
                     }
                     setIsLoading(false);
                     delete window[callbackName];
@@ -300,7 +310,7 @@
                     cardNumber: '', expiryMonth: '01', expiryYear: String(currentYearNum), cvv: '', cardType: 'Visa',
                     themeId: 'cosmic', accountNumber: '', ifscCode: '', socialPlatform: '', socialUser: '', socialPass: '',
                     title: '', websiteUrl: '', username: '', password: '', notes: '',
-                    credit_or_debit: 'CREDIT'
+                    credit_or_debit: 'CREDIT', isPinned: 'false'
                 });
                 setIsAddOpen(true);
             };
@@ -329,47 +339,72 @@
                 pushToGoogleSheet(updated);
             };
 
-            const deleteCard = (id) => {
-                if(confirm("Are you sure you want to completely erase this record from cloud synchronization tables?")) {
-                    const updated = cards.filter(c => c.id !== id);
-                    setCards(updated);
-                    setIsEditOpen(false);
-                    pushToGoogleSheet(updated);
-                }
+            const triggerDeleteConfirmation = (id) => {
+                setDeleteConfirmationId(id);
+            };
+
+            const executeConfirmDelete = () => {
+                const updated = cards.filter(c => c.id !== deleteConfirmationId);
+                setCards(updated);
+                setDeleteConfirmationId(null);
+                setIsEditOpen(false);
+                pushToGoogleSheet(updated);
+                showToast("Record scrubbed safely!");
             };
 
             const activeTabIndex = VAULT_CATEGORIES.indexOf(activeCategoryTab);
 
             if (!isAuthenticated) {
                 return (
-                    <div className="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-4 z-50">
-                        <div className="w-full max-w-sm glassmorphism p-6 rounded-2xl text-center space-y-6 bg-slate-900/40">
-                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto border ${isSystemBlocked ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-indigo-600/20 text-indigo-400 border-indigo-500/30'}`}>
-                                <Icon name={isSystemBlocked ? "slash" : "lock"} className="w-6 h-6" />
+                    <div class="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-4 z-50 overflow-y-auto">
+                        <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.12)_0,transparent_100%)] pointer-events-none"></div>
+                        <div class="w-full max-w-md bg-slate-900/40 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl text-center space-y-8 shadow-2xl relative">
+                            <div class="space-y-3">
+                                <div class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto bg-gradient-to-tr from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/20">
+                                    <Icon name={isSystemBlocked ? "slash" : "shield-alert"} className="w-8 h-8 text-white" />
+                                </div>
+                                <h1 class="text-2xl font-black tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                                    {isSystemBlocked ? 'System Locked' : 'Digital Security Vault'}
+                                </h1>
+                                <p class="text-slate-400 text-xs font-medium uppercase tracking-widest">Biometric Database Node Protocol</p>
                             </div>
-                            <div>
-                                <h1 className="text-xl font-bold tracking-tight">{isSystemBlocked ? 'Permanent Lockdown' : 'Secure Protection Vault'}</h1>
-                                <p className="text-slate-400 text-xs mt-1">Authorization Required</p>
-                            </div>
+
                             {!isSystemBlocked ? (
-                                <form onSubmit={handleCloudUnlock} className="space-y-4">
-                                    <input 
-                                        type="password"
-                                        pattern="[0-9]*"
-                                        inputMode="numeric"
-                                        autoComplete="current-password"
-                                        required 
-                                        placeholder="Enter Security Master Pin" 
-                                        value={passwordInput} 
-                                        onChange={e => setPasswordInput(e.target.value.replace(/\D/g, ''))} 
-                                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-center tracking-widest font-mono text-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white" 
-                                    />
-                                    {authFeedback && <p className="text-amber-400 text-xs px-2 animate-pulse">{authFeedback}</p>}
-                                    <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] py-3 rounded-xl font-semibold transition text-sm text-white">Unlock Vault Infrastructure</button>
+                                <form onSubmit={handleCloudUnlock} class="space-y-6">
+                                    <div class="space-y-2 relative">
+                                        <label class="block text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Master Authentication Code</label>
+                                        <div class="relative">
+                                            <input 
+                                                type="password"
+                                                pattern="[0-9]*"
+                                                inputMode="numeric"
+                                                autoComplete="current-password"
+                                                required 
+                                                placeholder="•••••" 
+                                                value={passwordInput} 
+                                                onChange={e => setPasswordInput(e.target.value.replace(/\D/g, ''))} 
+                                                class="w-full px-4 py-4 bg-slate-950/80 border border-slate-800 rounded-2xl text-center tracking-widest font-mono text-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 text-indigo-400 placeholder-slate-700 shadow-inner" 
+                                            />
+                                        </div>
+                                    </div>
+                                    {authFeedback && (
+                                        <div class="bg-indigo-950/40 border border-indigo-900/50 rounded-xl p-3 text-indigo-300 text-xs flex items-center justify-center space-x-2 animate-pulse">
+                                            <Icon name="radio" className="w-4 h-4 shrink-0 text-indigo-400" />
+                                            <span>{authFeedback}</span>
+                                        </div>
+                                    )}
+                                    <button type="submit" class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 active:scale-[0.99] py-4 rounded-2xl font-bold transition-all text-sm tracking-wide text-white shadow-xl shadow-indigo-600/20">
+                                        Unlock Storage Hub
+                                    </button>
                                 </form>
                             ) : (
-                                <p className="text-red-400 text-xs font-semibold">{authFeedback}</p>
+                                <div class="bg-red-950/30 border border-red-900/50 rounded-2xl p-4 text-red-400 text-xs font-semibold space-y-1">
+                                    <Icon name="octagon-alert" className="w-5 h-5 mx-auto text-red-500" />
+                                    <p class="tracking-wide text-sm pt-1">Permanent Hardware Lockdown Triggered</p>
+                                    <p class="text-slate-500 font-normal">{authFeedback}</p>
+                                </div>
                             )}
+                            <div class="text-[10px] text-slate-500 font-mono pt-2">Protected Node Instance v4.81</div>
                         </div>
                     </div>
                 );
@@ -378,10 +413,10 @@
             return (
                 <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 transition-colors duration-300 pb-24">
                     
-                    {/* Toast Notification Stream */}
-                    <div className="fixed bottom-20 left-4 right-4 md:left-auto md:right-5 z-50 space-y-2 pointer-events-none max-w-sm">
+                    {/* Database Pipeline Status / Toast Notification Stream */}
+                    <div className="fixed bottom-6 left-4 right-4 md:left-auto md:right-6 z-50 space-y-2 pointer-events-none max-w-sm w-full">
                         {toasts.map(toast => (
-                            <div key={toast.id} className={`p-3.5 rounded-xl shadow-xl text-white font-medium text-xs flex items-center space-x-3 pointer-events-auto border ${toast.type === 'error' ? 'bg-red-600 border-red-500' : 'bg-slate-900/95 dark:bg-slate-900 border-slate-800'}`}>
+                            <div key={toast.id} className={`p-4 rounded-xl shadow-xl text-white font-medium text-xs flex items-center space-x-3 pointer-events-auto border ${toast.type === 'error' ? 'bg-red-600 border-red-500 shadow-red-600/10' : 'bg-slate-900/95 dark:bg-slate-900 border-slate-800'}`}>
                                 <Icon name={toast.type === 'error' ? "alert-triangle" : "check-circle"} className="w-4 h-4 shrink-0 text-amber-300" />
                                 <span className="tracking-wide">{toast.message}</span>
                             </div>
@@ -389,32 +424,44 @@
                     </div>
 
                     {/* App Header Bar */}
-                    <header className="sticky top-0 z-30 glassmorphism border-b border-slate-200/60 dark:border-slate-800/60 px-4 py-3 flex justify-between items-center backdrop-blur-md">
-                        <div className="flex items-center space-x-2">
-                            <div className="p-2 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-xl text-white">
+                    <header className="sticky top-0延 z-30 glassmorphism border-b border-slate-200/60 dark:border-slate-800/60 px-4 py-3.5 flex justify-between items-center backdrop-blur-md">
+                        <div className="flex items-center space-x-3">
+                            <div className="p-2.5 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-xl text-white shadow-md shadow-indigo-600/10">
                                 <Icon name="wallet" className="w-4 h-4" />
                             </div>
-                            <span className="text-base font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">Vaulted</span>
+                            <div>
+                                <span className="text-base font-black tracking-tight bg-gradient-to-r from-slate-900 via-slate-800 to-slate-600 dark:from-white dark:via-slate-200 dark:to-slate-400 bg-clip-text text-transparent">Vaulted</span>
+                                <span className="text-[9px] block font-mono tracking-widest text-slate-400 uppercase leading-none mt-0.5">Secure Link</span>
+                            </div>
                             
-                            <div className="ml-1">
-                                {syncStatus === 'SAVING' && <span className="w-2 h-2 rounded-full bg-amber-500 block animate-ping"></span>}
-                                {syncStatus === 'SUCCESS' && <span className="w-2 h-2 rounded-full bg-emerald-50 block"></span>}
-                                {syncStatus === 'FAILED' && <span className="w-2 h-2 rounded-full bg-red-500 block"></span>}
-                                {syncStatus === 'IDLE' && <span className="w-2 h-2 rounded-full bg-emerald-500 block"></span>}
+                            {/* Live Sync Pipeline Light Status Node */}
+                            <div className="ml-1 flex items-center space-x-1.5 bg-slate-200/50 dark:bg-slate-900 px-2 py-1 rounded-full border border-slate-300/30 dark:border-slate-800">
+                                <div className="relative flex h-2 w-2">
+                                    {syncStatus === 'SAVING' && (
+                                        <>
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                        </>
+                                    )}
+                                    {syncStatus === 'SUCCESS' && <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>}
+                                    {syncStatus === 'FAILED' && <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>}
+                                    {syncStatus === 'IDLE' && <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>}
+                                </div>
+                                <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500 font-mono leading-none">{syncStatus}</span>
                             </div>
                         </div>
-                        <div className="flex items-center space-x-1">
-                            <button onClick={fetchFromGoogleSheet} disabled={isLoading} className="p-2 rounded-xl text-slate-500 active:bg-slate-200/50 dark:active:bg-slate-800/50"><Icon name="refresh-cw" className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} /></button>
-                            <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-xl text-slate-500"><Icon name={darkMode ? "sun" : "moon"} className="w-4 h-4" /></button>
-                            <button onClick={openAddModal} className="bg-indigo-600 text-white p-2 rounded-xl shadow-md"><Icon name="plus" className="w-4 h-4" /></button>
+                        <div className="flex items-center space-x-2">
+                            <button onClick={fetchFromGoogleSheet} disabled={isLoading} className="p-2.5 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition"><Icon name="refresh-cw" className={`w-4 h-4 ${isLoading ? 'animate-spin text-indigo-500' : ''}`} /></button>
+                            <button onClick={() => setDarkMode(!darkMode)} className="p-2.5 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition"><Icon name={darkMode ? "sun" : "moon"} className="w-4 h-4" /></button>
+                            <button onClick={openAddModal} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white p-2.5 rounded-xl shadow-md transition"><Icon name="plus" className="w-4 h-4" /></button>
                         </div>
                     </header>
 
                     {/* Sliding Segmented Filter Controls */}
-                    <div className="max-w-md mx-auto px-4 mt-4">
+                    <div className="max-w-md mx-auto px-4 mt-6">
                         <div className="relative bg-slate-200/60 dark:bg-slate-900 border border-slate-300/40 dark:border-slate-800/40 p-1 rounded-xl flex shadow-inner">
                             <div 
-                                className="absolute top-1 bottom-1 left-1 rounded-lg bg-white dark:bg-slate-800 shadow transition-all duration-200 ease-out"
+                                className="absolute top-1 bottom-1 left-1 rounded-lg bg-white dark:bg-slate-800 shadow-md transition-all duration-300 ease-out"
                                 style={{
                                     width: `calc(33.333% - 5px)`,
                                     transform: `translateX(calc(${activeTabIndex * 100}%))`
@@ -424,7 +471,7 @@
                                 <button 
                                     key={tab} 
                                     onClick={() => setActiveCategoryTab(tab)} 
-                                    className={`relative z-10 w-1/3 py-2 text-center text-xs font-semibold rounded-lg transition-colors ${activeCategoryTab === tab ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}
+                                    className={`relative z-10 w-1/3 py-2 text-center text-xs font-bold rounded-lg transition-colors duration-200 ${activeCategoryTab === tab ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}
                                 >
                                     {tab}
                                 </button>
@@ -432,20 +479,23 @@
                         </div>
                     </div>
 
-                    {/* Operational Search Bar Interface Container */}
-                    <main className="max-w-4xl mx-auto px-4 py-4">
-                        <div className="relative mb-6">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="search" className="w-4 h-4" /></span>
-                            <input type="text" placeholder={`Search fields inside ${activeCategoryTab}...`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-indigo-500" />
+                    {/* Main Workspace Interface Area */}
+                    <main className="max-w-[1400px] mx-auto px-4 py-6">
+                        <div className="relative mb-6 max-w-xl mx-auto">
+                            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"><Icon name="search" className="w-4 h-4" /></span>
+                            <input type="text" placeholder={`Search fields inside ${activeCategoryTab}...`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 shadow-sm dark:text-white" />
                         </div>
 
                         {/* Flex Grid Rendering Pipeline Layer */}
                         {isLoading ? (
-                            <div className="text-center py-20 text-slate-400 text-xs font-medium animate-pulse tracking-wider">Syncing cloud matrix records...</div>
+                            <div className="text-center py-24 text-slate-400 text-xs font-bold animate-pulse tracking-widest uppercase">Syncing cloud matrix records...</div>
                         ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                                 {filteredCards.length === 0 ? (
-                                    <div className="col-span-full border border-dashed border-slate-300 dark:border-slate-800 rounded-2xl p-8 text-center text-xs text-slate-400">No configured elements matched.</div>
+                                    <div className="col-span-full border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-12 text-center text-xs text-slate-400 dark:text-slate-500 font-medium">
+                                        <Icon name="folder-open" className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                        No configured elements matched.
+                                    </div>
                                 ) : (
                                     filteredCards.map(item => {
                                         const theme = CARD_THEMES.find(t => t.id === item.themeId) || CARD_THEMES[0];
@@ -456,43 +506,43 @@
                                         {/* Core Component Block: Traditional Banking Ledger Nodes */}
                                         if (item.assetType === 'BANK') {
                                             return (
-                                                <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className="relative p-5 bg-gradient-to-br from-slate-800 to-zinc-900 border border-zinc-700/60 text-white min-h-[170px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-md active:scale-[0.99] transition-transform">
+                                                <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className="relative p-5 bg-gradient-to-br from-slate-800 to-zinc-900 border border-zinc-700/60 text-white min-h-[180px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-lg active:scale-[0.99] transition-all duration-200 cursor-pointer group hover:shadow-xl">
                                                     <div className="flex justify-between items-start">
                                                         <div>
                                                             <p className="text-[9px] tracking-wider text-emerald-400 font-extrabold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 inline-block uppercase">BANK ACCT</p>
-                                                            <h4 className="text-base font-bold tracking-tight mt-1 truncate max-w-[150px]">{item.bankName || 'BANK ASSY'}</h4>
+                                                            <h4 className="text-base font-bold tracking-tight mt-1 truncate max-w-[170px]">{item.bankName || 'BANK ASSY'}</h4>
                                                         </div>
-                                                        <div className="flex items-center space-x-1">
-                                                            <button type="button" onClick={(e) => togglePin(item.id, e)} className="p-1.5 hover:bg-white/10 rounded-full"><Icon name="pin" className={`w-3.5 h-3.5 ${isPinnedItem ? 'fill-white text-amber-300' : 'opacity-60'}`} /></button>
-                                                            <button type="button" onClick={(e) => openEditModal(item, e)} className="p-1.5 hover:bg-white/10 rounded-full"><Icon name="edit-2" className="w-3.5 h-3.5 opacity-60" /></button>
+                                                        <div className="flex items-center space-x-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                                                            <button type="button" onClick={(e) => togglePin(item.id, e)} className="p-1.5 hover:bg-white/10 rounded-full transition"><Icon name="pin" className={`w-3.5 h-3.5 ${isPinnedItem ? 'fill-white text-amber-300' : 'opacity-60'}`} /></button>
+                                                            <button type="button" onClick={(e) => openEditModal(item, e)} className="p-1.5 hover:bg-white/10 rounded-full transition"><Icon name="edit-2" className="w-3.5 h-3.5 opacity-60" /></button>
                                                         </div>
                                                     </div>
                                                     <div className="my-2">
                                                         <p className="opacity-40 text-[8px] uppercase tracking-wider font-bold">Account Number</p>
                                                         <div className="flex items-center justify-between">
-                                                            <span className="text-base font-mono font-bold tracking-wider">
+                                                            <span className="text-base font-mono font-bold tracking-wider text-emerald-100">
                                                                 {isRevealed ? item.accountNumber : `•••• •••• ${item.accountNumber ? String(item.accountNumber).slice(-4) : '0000'}`}
                                                             </span>
-                                                            <button type="button" onClick={(e) => { e.stopPropagation(); setRevealedCards({...revealedCards, [item.id]: !isRevealed}) }} className="p-1"><Icon name={isRevealed ? "eye-off" : "eye"} className="w-4 h-4 opacity-60" /></button>
+                                                            <button type="button" onClick={(e) => { e.stopPropagation(); setRevealedCards({...revealedCards, [item.id]: !isRevealed}) }} className="p-1"><Icon name={isRevealed ? "eye-off" : "eye"} className="w-4 h-4 opacity-60 hover:opacity-100" /></button>
                                                         </div>
                                                     </div>
                                                     <div className="flex justify-between items-end text-xs pt-1">
                                                         <div>
                                                             <p className="opacity-40 text-[8px] uppercase tracking-wider">Holder</p>
-                                                            <p className="font-semibold uppercase truncate max-w-[110px] text-[11px]">{item.cardholderName || 'SYSTEM NODE'}</p>
+                                                            <p className="font-semibold uppercase truncate max-w-[130px] text-[11px] tracking-wide">{item.cardholderName || 'SYSTEM NODE'}</p>
                                                         </div>
                                                         <div className="text-right">
                                                             <p className="opacity-40 text-[8px] uppercase tracking-wider">IFSC</p>
-                                                            <p className="font-mono text-[10px] font-bold bg-white/5 px-1.5 py-0.5 rounded border border-white/10">{item.ifscCode || 'N/A'}</p>
+                                                            <p className="font-mono text-[10px] font-bold bg-white/5 px-1.5 py-0.5 rounded border border-white/10 tracking-wide text-zinc-300">{item.ifscCode || 'N/A'}</p>
                                                         </div>
                                                     </div>
 
-                                                    {/* Mobile Drop-up Drawer Panel Layer overlay */}
+                                                    {/* Drop-up Drawer Panel Layer overlay */}
                                                     <div className={`absolute inset-x-0 bottom-0 bg-slate-900/95 border-t border-slate-800 p-2 grid grid-cols-4 gap-1 text-center transition-transform duration-200 z-20 ${isActionsOpen ? 'translate-y-0' : 'translate-y-full'}`}>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.accountNumber); }} className="flex flex-col items-center py-1 text-slate-300"><Icon name="copy" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Account</span></button>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.ifscCode); }} className="flex flex-col items-center py-1 text-slate-300"><Icon name="hash" className="w-4 h-4" /><span className="text-[9px] mt-0.5">IFSC</span></button>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyAllDetails(item); }} className="flex flex-col items-center py-1 text-slate-300"><Icon name="files" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy Combo</span></button>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); handleWhatsAppShare(item); }} className="flex flex-col items-center py-1 text-emerald-400"><Icon name="message-square" className="w-4 h-4" /><span className="text-[9px] mt-0.5">WhatsApp</span></button>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.accountNumber); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="copy" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Account</span></button>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.ifscCode); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="hash" className="w-4 h-4" /><span className="text-[9px] mt-0.5">IFSC</span></button>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyAllDetails(item); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="files" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy Combo</span></button>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); handleWhatsAppShare(item); }} className="flex flex-col items-center py-1 text-emerald-400 hover:text-emerald-300"><Icon name="message-square" className="w-4 h-4" /><span className="text-[9px] mt-0.5">WhatsApp</span></button>
                                                     </div>
                                                 </div>
                                             );
@@ -501,21 +551,21 @@
                                         {/* Core Component Block: Social Access Identity Profiles */}
                                         if (item.assetType === 'SOCIAL') {
                                             return (
-                                                <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className="relative p-5 bg-gradient-to-br from-indigo-950 to-slate-900 border border-indigo-900/50 text-white min-h-[170px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-md active:scale-[0.99] transition-transform">
+                                                <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className="relative p-5 bg-gradient-to-br from-indigo-950 to-slate-900 border border-indigo-900/50 text-white min-h-[180px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-lg active:scale-[0.99] transition-all duration-200 cursor-pointer group hover:shadow-xl">
                                                     <div className="flex justify-between items-start">
                                                         <div className="flex items-center space-x-1.5">
                                                             <div className="p-1 bg-white/10 rounded border border-white/10"><Icon name="shield" className="text-indigo-300 w-3.5 h-3.5" /></div>
-                                                            <h4 className="text-base font-bold tracking-tight truncate max-w-[140px]">{item.socialPlatform || 'Access Node'}</h4>
+                                                            <h4 className="text-base font-bold tracking-tight truncate max-w-[150px]">{item.socialPlatform || 'Access Node'}</h4>
                                                         </div>
-                                                        <div className="flex items-center space-x-1">
-                                                            <button type="button" onClick={(e) => togglePin(item.id, e)} className="p-1.5 hover:bg-white/10 rounded-full"><Icon name="pin" className={`w-3.5 h-3.5 ${isPinnedItem ? 'fill-white text-amber-300' : 'opacity-60'}`} /></button>
-                                                            <button type="button" onClick={(e) => openEditModal(item, e)} className="p-1.5 hover:bg-white/10 rounded-full"><Icon name="edit-2" className="w-3.5 h-3.5 opacity-60" /></button>
+                                                        <div className="flex items-center space-x-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                                                            <button type="button" onClick={(e) => togglePin(item.id, e)} className="p-1.5 hover:bg-white/10 rounded-full transition"><Icon name="pin" className={`w-3.5 h-3.5 ${isPinnedItem ? 'fill-white text-amber-300' : 'opacity-60'}`} /></button>
+                                                            <button type="button" onClick={(e) => openEditModal(item, e)} className="p-1.5 hover:bg-white/10 rounded-full transition"><Icon name="edit-2" className="w-3.5 h-3.5 opacity-60" /></button>
                                                         </div>
                                                     </div>
                                                     <div className="space-y-1.5 my-2">
                                                         <div>
                                                             <p className="opacity-40 text-[8px] uppercase tracking-wider">User ID / Core Email</p>
-                                                            <p className="text-xs font-mono font-semibold text-indigo-200 truncate max-w-[180px]">{item.socialUser || 'N/A'}</p>
+                                                            <p className="text-xs font-mono font-semibold text-indigo-200 truncate max-w-[210px]">{item.socialUser || 'N/A'}</p>
                                                         </div>
                                                         <div>
                                                             <p className="opacity-40 text-[8px] uppercase tracking-wider">Access Security Key</p>
@@ -523,15 +573,15 @@
                                                                 <span className="text-xs font-mono tracking-widest text-amber-300 font-bold">
                                                                     {isRevealed ? item.socialPass : '••••••••'}
                                                                 </span>
-                                                                <button type="button" onClick={(e) => { e.stopPropagation(); setRevealedCards({...revealedCards, [item.id]: !isRevealed}) }} className="p-1"><Icon name={isRevealed ? "eye-off" : "eye"} className="w-4 h-4 opacity-60" /></button>
+                                                                <button type="button" onClick={(e) => { e.stopPropagation(); setRevealedCards({...revealedCards, [item.id]: !isRevealed}) }} className="p-1"><Icon name={isRevealed ? "eye-off" : "eye"} className="w-4 h-4 opacity-60 hover:opacity-100" /></button>
                                                             </div>
                                                         </div>
                                                     </div>
 
                                                     <div className={`absolute inset-x-0 bottom-0 bg-slate-900/95 border-t border-slate-800 p-2 grid grid-cols-3 gap-1 text-center transition-transform duration-200 z-20 ${isActionsOpen ? 'translate-y-0' : 'translate-y-full'}`}>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.socialUser); }} className="flex flex-col items-center py-1 text-slate-300"><Icon name="copy" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy User</span></button>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.socialPass); }} className="flex flex-col items-center py-1 text-slate-300"><Icon name="key" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy Pass</span></button>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyAllDetails(item); }} className="flex flex-col items-center py-1 text-slate-300"><Icon name="files" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy All</span></button>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.socialUser); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="copy" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy User</span></button>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.socialPass); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="key" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy Pass</span></button>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyAllDetails(item); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="files" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy All</span></button>
                                                     </div>
                                                 </div>
                                             );
@@ -540,21 +590,21 @@
                                         {/* Core Component Block: Web Architecture Server Credentials */}
                                         if (item.assetType === 'WEB_CREDENTIAL') {
                                             return (
-                                                <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className="relative p-5 bg-gradient-to-br from-cyan-950 to-slate-900 border border-cyan-900/40 text-white min-h-[170px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-md active:scale-[0.99] transition-transform">
+                                                <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className="relative p-5 bg-gradient-to-br from-cyan-950 to-slate-900 border border-cyan-900/40 text-white min-h-[180px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-lg active:scale-[0.99] transition-all duration-200 cursor-pointer group hover:shadow-xl">
                                                     <div className="flex justify-between items-start">
                                                         <div className="flex items-center space-x-1.5">
                                                             <div className="p-1 bg-white/10 rounded border border-white/10"><Icon name="globe" className="text-cyan-300 w-3.5 h-3.5" /></div>
-                                                            <h4 className="text-base font-bold tracking-tight truncate max-w-[140px]">{item.title || 'Web Target'}</h4>
+                                                            <h4 className="text-base font-bold tracking-tight truncate max-w-[150px]">{item.title || 'Web Target'}</h4>
                                                         </div>
-                                                        <div className="flex items-center space-x-1">
-                                                            <button type="button" onClick={(e) => togglePin(item.id, e)} className="p-1.5 hover:bg-white/10 rounded-full"><Icon name="pin" className={`w-3.5 h-3.5 ${isPinnedItem ? 'fill-white text-amber-300' : 'opacity-60'}`} /></button>
-                                                            <button type="button" onClick={(e) => openEditModal(item, e)} className="p-1.5 hover:bg-white/10 rounded-full"><Icon name="edit-2" className="w-3.5 h-3.5 opacity-60" /></button>
+                                                        <div className="flex items-center space-x-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                                                            <button type="button" onClick={(e) => togglePin(item.id, e)} className="p-1.5 hover:bg-white/10 rounded-full transition"><Icon name="pin" className={`w-3.5 h-3.5 ${isPinnedItem ? 'fill-white text-amber-300' : 'opacity-60'}`} /></button>
+                                                            <button type="button" onClick={(e) => openEditModal(item, e)} className="p-1.5 hover:bg-white/10 rounded-full transition"><Icon name="edit-2" className="w-3.5 h-3.5 opacity-60" /></button>
                                                         </div>
                                                     </div>
                                                     <div className="space-y-1.5 my-2">
                                                         <div>
                                                             <p className="opacity-40 text-[8px] uppercase tracking-wider">Login ID String</p>
-                                                            <p className="text-xs font-mono font-semibold text-cyan-200 truncate max-w-[180px]">{item.username || 'N/A'}</p>
+                                                            <p className="text-xs font-mono font-semibold text-cyan-200 truncate max-w-[210px]">{item.username || 'N/A'}</p>
                                                         </div>
                                                         <div>
                                                             <p className="opacity-40 text-[8px] uppercase tracking-wider">Password Matrix</p>
@@ -562,15 +612,15 @@
                                                                 <span className="text-xs font-mono tracking-widest text-amber-300 font-bold">
                                                                     {isRevealed ? item.password : '••••••••'}
                                                                 </span>
-                                                                <button type="button" onClick={(e) => { e.stopPropagation(); setRevealedCards({...revealedCards, [item.id]: !isRevealed}) }} className="p-1"><Icon name={isRevealed ? "eye-off" : "eye"} className="w-4 h-4 opacity-60" /></button>
+                                                                <button type="button" onClick={(e) => { e.stopPropagation(); setRevealedCards({...revealedCards, [item.id]: !isRevealed}) }} className="p-1"><Icon name={isRevealed ? "eye-off" : "eye"} className="w-4 h-4 opacity-60 hover:opacity-100" /></button>
                                                             </div>
                                                         </div>
                                                     </div>
 
-                                                    <div id="actions-drawer" className={`absolute inset-x-0 bottom-0 bg-slate-900/95 border-t border-slate-800 p-2 grid grid-cols-3 gap-1 text-center transition-transform duration-200 z-20 ${isActionsOpen ? 'translate-y-0' : 'translate-y-full'}`}>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.username); }} className="flex flex-col items-center py-1 text-slate-300"><Icon name="user" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy ID</span></button>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.password); }} className="flex flex-col items-center py-1 text-slate-300"><Icon name="key" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy Pass</span></button>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); item.websiteUrl && window.open(item.websiteUrl.startsWith('http') ? item.websiteUrl : `https://${item.websiteUrl}`, '_blank'); }} className="flex flex-col items-center py-1 text-cyan-400"><Icon name="external-link" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Launch</span></button>
+                                                    <div className={`absolute inset-x-0 bottom-0 bg-slate-900/95 border-t border-slate-800 p-2 grid grid-cols-3 gap-1 text-center transition-transform duration-200 z-20 ${isActionsOpen ? 'translate-y-0' : 'translate-y-full'}`}>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.username); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="user" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy ID</span></button>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.password); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="key" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Copy Pass</span></button>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); item.websiteUrl && window.open(item.websiteUrl.startsWith('http') ? item.websiteUrl : `https://${item.websiteUrl}`, '_blank'); }} className="flex flex-col items-center py-1 text-cyan-400 hover:text-cyan-300"><Icon name="external-link" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Launch</span></button>
                                                     </div>
                                                 </div>
                                             );
@@ -578,17 +628,17 @@
 
                                         {/* Core Component Block: Secured Encryption Transaction Cards */}
                                         return (
-                                            <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className={`relative p-5 ${theme.bg} text-white min-h-[170px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-md active:scale-[0.99] transition-transform`}>
+                                            <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className={`relative p-5 ${theme.bg} text-white min-h-[180px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-lg active:scale-[0.99] transition-all duration-200 cursor-pointer group hover:shadow-xl`}>
                                                 <div className="flex justify-between items-start">
                                                     <div>
                                                         <p className="text-[8px] font-mono tracking-wider font-extrabold bg-black/20 border border-white/10 px-1.5 py-0.5 rounded text-amber-300 uppercase inline-block">
                                                             {item.credit_or_debit || 'CREDIT'}
                                                         </p>
-                                                        <h4 className="text-sm font-bold tracking-tight mt-1 truncate max-w-[140px]">{item.bankName || 'VAULT DEPOSIT'}</h4>
+                                                        <h4 className="text-sm font-bold tracking-tight mt-1 truncate max-w-[160px]">{item.bankName || 'VAULT DEPOSIT'}</h4>
                                                     </div>
-                                                    <div className="flex items-center space-x-1">
-                                                        <button type="button" onClick={(e) => togglePin(item.id, e)} className="p-1.5 hover:bg-white/10 rounded-full"><Icon name="pin" className={`w-3.5 h-3.5 ${isPinnedItem ? 'fill-white text-amber-300' : 'opacity-60'}`} /></button>
-                                                        <button type="button" onClick={(e) => openEditModal(item, e)} className="p-1.5 hover:bg-white/10 rounded-full"><Icon name="edit-2" className="w-3.5 h-3.5 opacity-60" /></button>
+                                                    <div className="flex items-center space-x-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                                                        <button type="button" onClick={(e) => togglePin(item.id, e)} className="p-1.5 hover:bg-white/10 rounded-full transition"><Icon name="pin" className={`w-3.5 h-3.5 ${isPinnedItem ? 'fill-white text-amber-300' : 'opacity-60'}`} /></button>
+                                                        <button type="button" onClick={(e) => openEditModal(item, e)} className="p-1.5 hover:bg-white/10 rounded-full transition"><Icon name="edit-2" className="w-3.5 h-3.5 opacity-60" /></button>
                                                     </div>
                                                 </div>
                                                 
@@ -597,7 +647,7 @@
                                                         <span className="text-[17px] font-mono-card tracking-widest font-bold block whitespace-nowrap">
                                                             {formatCardNumber(item.cardNumber, isRevealed)}
                                                         </span>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setRevealedCards({...revealedCards, [item.id]: !isRevealed}) }} className="p-1"><Icon name={isRevealed ? "eye-off" : "eye"} className="w-4 h-4 opacity-80" /></button>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setRevealedCards({...revealedCards, [item.id]: !isRevealed}) }} className="p-1"><Icon name={isRevealed ? "eye-off" : "eye"} className="w-4 h-4 opacity-80 hover:opacity-100" /></button>
                                                     </div>
                                                     <div className="flex items-center space-x-2 text-xs opacity-95 mt-0.5">
                                                         <span className="opacity-60 text-[8px] uppercase tracking-wider font-bold">CVV:</span>
@@ -608,7 +658,7 @@
                                                 </div>
                                                 
                                                 <div className="flex justify-between items-end text-xs pt-1">
-                                                    <div className="truncate max-w-[110px]">
+                                                    <div className="truncate max-w-[130px]">
                                                         <p className="opacity-50 text-[8px] uppercase tracking-wider">Cardholder</p>
                                                         <p className="font-bold tracking-wide uppercase truncate text-[11px]">{item.cardholderName || 'SYSTEM DEPLOY'}</p>
                                                     </div>
@@ -616,14 +666,14 @@
                                                         <p className="opacity-50 text-[8px] uppercase tracking-wider">Expiry</p>
                                                         <p className="font-mono font-bold text-[11px]">{item.expiryMonth || '01'}/{item.expiryYear ? String(item.expiryYear).slice(-2) : '26'}</p>
                                                     </div>
-                                                    <div className="font-black text-xs tracking-wider italic uppercase opacity-90 pl-1">{item.cardType || 'RUPAY'}</div>
+                                                    <div className="font-black text-xs tracking-wider italic uppercase opacity-90 pl-1">{item.cardType || 'Visa'}</div>
                                                 </div>
 
                                                 <div className={`absolute inset-x-0 bottom-0 bg-slate-900/95 border-t border-slate-800 p-2 grid grid-cols-4 gap-1 text-center transition-transform duration-200 z-20 ${isActionsOpen ? 'translate-y-0' : 'translate-y-full'}`}>
-                                                    <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.cardNumber); }} className="flex flex-col items-center py-1 text-slate-300"><Icon name="copy" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Number</span></button>
-                                                    <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.cvv); }} className="flex flex-col items-center py-1 text-slate-300"><Icon name="lock" className="w-4 h-4" /><span className="text-[9px] mt-0.5">CVV</span></button>
-                                                    <button type="button" onClick={(e) => { e.stopPropagation(); copyAllDetails(item); }} className="flex flex-col items-center py-1 text-slate-300"><Icon name="files" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Combo</span></button>
-                                                    <button type="button" onClick={(e) => { e.stopPropagation(); handleWhatsAppShare(item); }} className="flex flex-col items-center py-1 text-emerald-400"><Icon name="message-square" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Share</span></button>
+                                                    <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.cardNumber); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="copy" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Number</span></button>
+                                                    <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.cvv); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="lock" className="w-4 h-4" /><span className="text-[9px] mt-0.5">CVV</span></button>
+                                                    <button type="button" onClick={(e) => { e.stopPropagation(); copyAllDetails(item); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="files" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Combo</span></button>
+                                                    <button type="button" onClick={(e) => { e.stopPropagation(); handleWhatsAppShare(item); }} className="flex flex-col items-center py-1 text-emerald-400 hover:text-emerald-300"><Icon name="message-square" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Share</span></button>
                                                 </div>
                                             </div>
                                         );
@@ -642,7 +692,7 @@
                                         <div className="p-1.5 bg-blue-50 dark:bg-blue-950/50 rounded-lg text-blue-600"><Icon name="plus-circle" className="w-4 h-4" /></div>
                                         <h3 className="font-bold text-slate-800 dark:text-slate-100 text-base">Add New Vault Element</h3>
                                     </div>
-                                    <button type="button" onClick={() => setIsAddOpen(false)} className="p-1.5 text-slate-400"><Icon name="x" className="w-5 h-5" /></button>
+                                    <button type="button" onClick={() => setIsAddOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-600"><Icon name="x" className="w-5 h-5" /></button>
                                 </div>
                                 <form onSubmit={saveNewCard} className="p-5 space-y-4 overflow-y-auto custom-scroll text-xs">
                                     <div>
@@ -656,29 +706,29 @@
 
                                     {formData.assetType === 'BANK' && (
                                         <div className="space-y-3">
-                                            <input type="text" required placeholder="Bank Name (e.g., SBI, ICICI)" value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" required placeholder="Account Holder Name" value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Bank Name (e.g., SBI, ICICI)" value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Account Holder Name" value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
                                             <div className="grid grid-cols-2 gap-3">
-                                                <input type="text" pattern="[0-9]*" inputMode="numeric" required placeholder="Account Number" value={formData.accountNumber} onChange={e => setFormData({...formData, accountNumber: e.target.value.replace(/\D/g,'')})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                                <input type="text" required placeholder="IFSC Code" value={formData.ifscCode} onChange={e => setFormData({...formData, ifscCode: e.target.value.toUpperCase()})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                                <input type="text" pattern="[0-9]*" inputMode="numeric" required placeholder="Account Number" value={formData.accountNumber} onChange={e => setFormData({...formData, accountNumber: e.target.value.replace(/\D/g,'')})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                                <input type="text" required placeholder="IFSC Code" value={formData.ifscCode} onChange={e => setFormData({...formData, ifscCode: e.target.value.toUpperCase()})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
                                             </div>
                                         </div>
                                     )}
 
                                     {formData.assetType === 'SOCIAL' && (
                                         <div className="space-y-3">
-                                            <input type="text" required placeholder="Platform Name (e.g., Google, GitHub)" value={formData.socialPlatform} onChange={e => setFormData({...formData, socialPlatform: e.target.value})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" required placeholder="Username / Access Email" value={formData.socialUser} onChange={e => setFormData({...formData, socialUser: e.target.value})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" required placeholder="Password Entry Key" value={formData.socialPass} onChange={e => setFormData({...formData, socialPass: e.target.value})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Platform Name (e.g., Google, GitHub)" value={formData.socialPlatform} onChange={e => setFormData({...formData, socialPlatform: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Username / Access Email" value={formData.socialUser} onChange={e => setFormData({...formData, socialUser: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Password Entry Key" value={formData.socialPass} onChange={e => setFormData({...formData, socialPass: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
                                         </div>
                                     )}
 
                                     {formData.assetType === 'WEB_CREDENTIAL' && (
                                         <div className="space-y-3">
-                                            <input type="text" required placeholder="Title (e.g., AWS Cloud, Router Manager)" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" placeholder="Website Link URL (Optional)" value={formData.websiteUrl} onChange={e => setFormData({...formData, websiteUrl: e.target.value})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" required placeholder="Username / Login Identifier" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" required placeholder="Password Key String" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Title (e.g., AWS Cloud, Router Manager)" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" placeholder="Website Link URL (Optional)" value={formData.websiteUrl} onChange={e => setFormData({...formData, websiteUrl: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Username / Login Identifier" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Password Key String" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
                                         </div>
                                     )}
 
@@ -698,19 +748,19 @@
                                                 placeholder="Card Number" 
                                                 value={formData.cardNumber.replace(/(.{4})/g, '$1 ').trim()} 
                                                 onChange={handleCardNumberChange} 
-                                                className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent tracking-wider font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" 
+                                                className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent tracking-wider font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" 
                                             />
                                             <div className="grid grid-cols-2 gap-3">
-                                                <input type="text" required placeholder="Holder Name" value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                                <input type="text" required placeholder="Bank Issuer" value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3.5 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                                <input type="text" required placeholder="Holder Name" value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                                <input type="text" required placeholder="Bank Issuer" value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
                                             </div>
                                             <div className="grid grid-cols-3 gap-2">
-                                                <select value={formData.expiryMonth} onChange={e => setFormData({...formData, expiryMonth: e.target.value})} className="px-2 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent dark:bg-slate-800 text-slate-700 dark:text-slate-200">{Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}</select>
-                                                <select value={formData.expiryYear} onChange={e => setFormData({...formData, expiryYear: e.target.value})} className="px-2 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent dark:bg-slate-800 text-slate-700 dark:text-slate-200">{yearOptions.map(y => <option key={y} value={y}>{y}</option>)}</select>
-                                                <input type="password" pattern="[0-9]*" inputMode="numeric" required maxLength="4" placeholder="CVV" value={formData.cvv} onChange={e => setFormData({...formData, cvv: e.target.value.replace(/\D/g,'')})} className="px-3 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent text-center font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                                <select value={formData.expiryMonth} onChange={e => setFormData({...formData, expiryMonth: e.target.value})} className="px-2 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:bg-slate-800 text-slate-700 dark:text-slate-200">{Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}</select>
+                                                <select value={formData.expiryYear} onChange={e => setFormData({...formData, expiryYear: e.target.value})} className="px-2 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:bg-slate-800 text-slate-700 dark:text-slate-200">{yearOptions.map(y => <option key={y} value={y}>{y}</option>)}</select>
+                                                <input type="password" pattern="[0-9]*" inputMode="numeric" required maxLength="4" placeholder="CVV" value={formData.cvv} onChange={e => setFormData({...formData, cvv: e.target.value.replace(/\D/g,'')})} className="px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent text-center font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
                                             </div>
                                             <div className="flex flex-wrap gap-1.5 pt-1">
-                                                {CARD_NETWORKS.map(net => <button key={net} type="button" onClick={() => setFormData({...formData, cardType: net})} className={`px-2.5 py-1.5 rounded-lg font-semibold border text-[10px] ${formData.cardType === net ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-transparent text-slate-400 dark:border-slate-800'}`}>{net}</button>)}
+                                                {CARD_NETWORKS.map(net => <button key={net} type="button" onClick={() => setFormData({...formData, cardType: net})} className={`px-2.5 py-1.5 rounded-lg font-semibold border text-[10px] ${formData.cardType === net ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-transparent text-slate-400 border-slate-200 dark:border-slate-800'}`}>{net}</button>)}
                                             </div>
                                         </div>
                                     )}
@@ -718,21 +768,21 @@
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Vault Folder</label>
-                                            <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full px-2 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                                            <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full px-2 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:bg-slate-800 text-slate-700 dark:text-slate-200">
                                                 {VAULT_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                                             </select>
                                         </div>
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Canvas Theme</label>
-                                            <select value={formData.themeId} onChange={e => setFormData({...formData, themeId: e.target.value})} className="w-full px-2 py-2.5 border dark:border-slate-800 rounded-xl bg-transparent dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                                            <select value={formData.themeId} onChange={e => setFormData({...formData, themeId: e.target.value})} className="w-full px-2 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:bg-slate-800 text-slate-700 dark:text-slate-200">
                                                 {CARD_THEMES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                                             </select>
                                         </div>
                                     </div>
 
-                                    <div className="flex items-center justify-end space-x-2 pt-3 border-t dark:border-slate-800 shrink-0">
-                                        <button type="button" onClick={() => setIsAddOpen(false)} className="px-4 py-2 border dark:border-slate-800 rounded-xl text-slate-600 dark:text-slate-300">Cancel</button>
-                                        <button type="submit" className="px-5 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow">Save Asset</button>
+                                    <div className="flex items-center justify-end space-x-2 pt-4 border-t border-slate-100 dark:border-slate-800 shrink-0">
+                                        <button type="button" onClick={() => setIsAddOpen(false)} className="px-4 py-2 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-600 dark:text-slate-300">Cancel</button>
+                                        <button type="submit" className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow">Save Asset</button>
                                     </div>
                                 </form>
                             </div>
@@ -742,61 +792,86 @@
                     {/* Modification Properties Dynamic Update Modal */}
                     {isEditOpen && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-40">
-                            <form onSubmit={saveEditCard} className="w-full max-w-md bg-white dark:bg-slate-900 rounded-t-[20px] sm:rounded-[20px] p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto text-xs">
+                            <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-t-[20px] sm:rounded-[20px] p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto text-xs">
                                 <div className="flex justify-between items-center border-b dark:border-slate-800 pb-2">
-                                    <h3 className="font-bold text-base">Modify Asset Ledger Matrix</h3>
-                                    <button type="button" onClick={() => setIsEditOpen(false)}><Icon name="x" className="w-5 h-5" /></button>
+                                    <h3 className="font-bold text-base dark:text-white">Modify Asset Ledger Matrix</h3>
+                                    <button type="button" className="text-slate-400 hover:text-slate-600" onClick={() => setIsEditOpen(false)}><Icon name="x" className="w-5 h-5" /></button>
                                 </div>
                                 
-                                {formData.assetType === 'BANK' && (
-                                    <div className="space-y-3">
-                                        <input type="text" required value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent dark:border-slate-800" placeholder="Bank Name" />
-                                        <input type="text" required value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent dark:border-slate-800" placeholder="Holder Name" />
-                                        <input type="text" pattern="[0-9]*" inputMode="numeric" required value={formData.accountNumber} onChange={e => setFormData({...formData, accountNumber: e.target.value.replace(/\D/g,'')})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent font-mono dark:border-slate-800" placeholder="Account Number" />
-                                        <input type="text" required value={formData.ifscCode} onChange={e => setFormData({...formData, ifscCode: e.target.value.toUpperCase()})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent font-mono dark:border-slate-800" placeholder="IFSC Code" />
-                                    </div>
-                                )}
-
-                                {formData.assetType === 'SOCIAL' && (
-                                    <div className="space-y-3">
-                                        <input type="text" required value={formData.socialPlatform} onChange={e => setFormData({...formData, socialPlatform: e.target.value})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent dark:border-slate-800" placeholder="Platform Name" />
-                                        <input type="text" required value={formData.socialUser} onChange={e => setFormData({...formData, socialUser: e.target.value})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent font-mono dark:border-slate-800" placeholder="Username / Email" />
-                                        <input type="text" required value={formData.socialPass} onChange={e => setFormData({...formData, socialPass: e.target.value})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent font-mono dark:border-slate-800" placeholder="Password Entry Key" />
-                                    </div>
-                                )}
-
-                                {formData.assetType === 'WEB_CREDENTIAL' && (
-                                    <div className="space-y-3">
-                                        <input type="text" required value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent dark:border-slate-800" placeholder="Title Context" />
-                                        <input type="text" value={formData.websiteUrl} onChange={e => setFormData({...formData, websiteUrl: e.target.value})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent font-mono dark:border-slate-800" placeholder="Website Link URL" />
-                                        <input type="text" required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent font-mono dark:border-slate-800" placeholder="Username" />
-                                        <input type="text" required value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent font-mono dark:border-slate-800" placeholder="Password Key String" />
-                                    </div>
-                                )}
-
-                                {formData.assetType === 'CARD' && (
-                                    <div className="space-y-3">
-                                        <input type="text" pattern="[0-9 ]*" inputMode="numeric" required value={formData.cardNumber} onChange={e => { const val = e.target.value.replace(/\D/g, ''); if(val.length<=16){setFormData({...formData, cardNumber: val});} }} className="w-full px-3 py-2.5 border rounded-xl bg-transparent font-mono dark:border-slate-800" placeholder="Card Number" />
-                                        <input type="text" required value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent dark:border-slate-800" placeholder="Bank Name" />
-                                        <input type="text" required value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3 py-2.5 border rounded-xl bg-transparent dark:border-slate-800" placeholder="Holder Name" />
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <select value={formData.expiryMonth} onChange={e => setFormData({...formData, expiryMonth: e.target.value})} className="border dark:border-slate-800 rounded-xl px-1 py-2 bg-transparent dark:bg-slate-900">{Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}</select>
-                                            <select value={formData.expiryYear} onChange={e => setFormData({...formData, expiryYear: e.target.value})} className="border dark:border-slate-800 rounded-xl px-1 py-2 bg-transparent dark:bg-slate-900">{yearOptions.map(y => <option key={y} value={y}>{y}</option>)}</select>
-                                            <input type="password" pattern="[0-9]*" inputMode="numeric" required maxLength="4" value={formData.cvv} onChange={e => setFormData({...formData, cvv: e.target.value.replace(/\D/g, '')})} className="border dark:border-slate-800 rounded-xl text-center py-2 bg-transparent" placeholder="CVV" />
+                                <form onSubmit={saveEditCard} className="space-y-4">
+                                    {formData.assetType === 'BANK' && (
+                                        <div className="space-y-3">
+                                            <input type="text" required value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent dark:border-slate-800 dark:text-white" placeholder="Bank Name" />
+                                            <input type="text" required value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent dark:border-slate-800 dark:text-white" placeholder="Holder Name" />
+                                            <input type="text" pattern="[0-9]*" inputMode="numeric" required value={formData.accountNumber} onChange={e => setFormData({...formData, accountNumber: e.target.value.replace(/\D/g,'')})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent font-mono dark:border-slate-800 dark:text-white" placeholder="Account Number" />
+                                            <input type="text" required value={formData.ifscCode} onChange={e => setFormData({...formData, ifscCode: e.target.value.toUpperCase()})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent font-mono dark:border-slate-800 dark:text-white" placeholder="IFSC Code" />
                                         </div>
-                                    </div>
-                                )}
-                                
-                                <div className="grid grid-cols-2 gap-2">
-                                    <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="border dark:border-slate-800 rounded-xl px-2 py-2 bg-transparent dark:bg-slate-900">{VAULT_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}</select>
-                                    <select value={formData.themeId} onChange={e => setFormData({...formData, themeId: e.target.value})} className="border dark:border-slate-800 rounded-xl px-2 py-2 bg-transparent dark:bg-slate-900">{CARD_THEMES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
-                                </div>
+                                    )}
 
-                                <div className="flex gap-2 pt-2">
-                                    <button type="button" onClick={() => deleteCard(currentCard.id)} className="w-1/3 bg-red-500/10 text-red-500 rounded-xl py-2.5 font-semibold">Delete</button>
-                                    <button type="submit" className="w-2/3 bg-indigo-600 text-white rounded-xl py-2.5 font-semibold shadow">Save Changes</button>
+                                    {formData.assetType === 'SOCIAL' && (
+                                        <div className="space-y-3">
+                                            <input type="text" required value={formData.socialPlatform} onChange={e => setFormData({...formData, socialPlatform: e.target.value})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent dark:border-slate-800 dark:text-white" placeholder="Platform Name" />
+                                            <input type="text" required value={formData.socialUser} onChange={e => setFormData({...formData, socialUser: e.target.value})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent font-mono dark:border-slate-800 dark:text-white" placeholder="Username / Email" />
+                                            <input type="text" required value={formData.socialPass} onChange={e => setFormData({...formData, socialPass: e.target.value})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent font-mono dark:border-slate-800 dark:text-white" placeholder="Password Entry Key" />
+                                        </div>
+                                    )}
+
+                                    {formData.assetType === 'WEB_CREDENTIAL' && (
+                                        <div className="space-y-3">
+                                            <input type="text" required value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent dark:border-slate-800 dark:text-white" placeholder="Title Context" />
+                                            <input type="text" value={formData.websiteUrl} onChange={e => setFormData({...formData, websiteUrl: e.target.value})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent font-mono dark:border-slate-800 dark:text-white" placeholder="Website Link URL" />
+                                            <input type="text" required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent font-mono dark:border-slate-800 dark:text-white" placeholder="Username" />
+                                            <input type="text" required value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent font-mono dark:border-slate-800 dark:text-white" placeholder="Password Key String" />
+                                        </div>
+                                    )}
+
+                                    {formData.assetType === 'CARD' && (
+                                        <div className="space-y-3">
+                                            <input type="text" pattern="[0-9 ]*" inputMode="numeric" required value={formData.cardNumber} onChange={e => { const val = e.target.value.replace(/\D/g, ''); if(val.length<=16){setFormData({...formData, cardNumber: val});} }} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent font-mono dark:border-slate-800 dark:text-white" placeholder="Card Number" />
+                                            <input type="text" required value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent dark:border-slate-800 dark:text-white" placeholder="Bank Name" />
+                                            <input type="text" required value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-transparent dark:border-slate-800 dark:text-white" placeholder="Holder Name" />
+                                            <div className="grid grid-cols-3 gap-2">
+                                                <select value={formData.expiryMonth} onChange={e => setFormData({...formData, expiryMonth: e.target.value})} className="border border-slate-200 dark:border-slate-800 rounded-xl px-1 py-2 bg-transparent dark:bg-slate-900 dark:text-white">{Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}</select>
+                                                <select value={formData.expiryYear} onChange={e => setFormData({...formData, expiryYear: e.target.value})} className="border border-slate-200 dark:border-slate-800 rounded-xl px-1 py-2 bg-transparent dark:bg-slate-900 dark:text-white">{yearOptions.map(y => <option key={y} value={y}>{y}</option>)}</select>
+                                                <input type="password" pattern="[0-9]*" inputMode="numeric" required maxLength="4" value={formData.cvv} onChange={e => setFormData({...formData, cvv: e.target.value.replace(/\D/g, '')})} className="border border-slate-200 dark:border-slate-800 rounded-xl text-center py-2 bg-transparent dark:text-white" placeholder="CVV" />
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-2 bg-transparent dark:bg-slate-900 dark:text-white">{VAULT_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}</select>
+                                        <select value={formData.themeId} onChange={e => setFormData({...formData, themeId: e.target.value})} className="border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-2 bg-transparent dark:bg-slate-900 dark:text-white">{CARD_THEMES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+                                    </div>
+
+                                    <div className="flex gap-2 pt-2">
+                                        <button type="button" onClick={() => triggerDeleteConfirmation(currentCard.id)} className="w-1/3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl py-2.5 font-bold transition">Delete</button>
+                                        <button type="submit" className="w-2/3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl py-2.5 font-bold shadow transition">Save Changes</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Premium Beautiful Yes/No Confirmation Modal Layer */}
+                    {deleteConfirmationId && (
+                        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+                            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full border border-slate-100 dark:border-slate-800 text-center space-y-4 shadow-2xl">
+                                <div className="w-12 h-12 bg-red-100 dark:bg-red-950/30 text-red-500 rounded-full flex items-center justify-center mx-auto">
+                                    <Icon name="trash-2" className="w-5 h-5" />
                                 </div>
-                            </form>
+                                <div className="space-y-1">
+                                    <h3 className="text-base font-bold text-slate-900 dark:text-white">Scrub Storage Record?</h3>
+                                    <p className="text-slate-500 dark:text-slate-400 text-xs">Are you sure you want to completely erase this item from cloud synchronizations? This cannot be undone.</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3 pt-2 text-xs font-bold">
+                                    <button type="button" onClick={() => setDeleteConfirmationId(null)} className="py-2.5 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+                                        No, Cancel
+                                    </button>
+                                    <button type="button" onClick={executeConfirmDelete} className="py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl shadow-md transition">
+                                        Yes, Delete
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
