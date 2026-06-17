@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Digital Wallet - Secure Cloud Vault</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/><circle cx='12' cy='11' r='2' fill='%2322c55e'/></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -48,10 +47,19 @@
 
     <div id="root"></div>
 
-    <script type="text/babel">
+    <script>
+        // CRITICAL FIX: Force Babel standalone to use the classic JSX runtime.
+        // This prevents it from injecting 'import' statements that crash the browser.
+        Babel.registerPreset('react-classic', {
+            presets: [
+                [Babel.availablePresets['react'], { runtime: 'classic' }]
+            ]
+        });
+    </script>
+
+    <script type="text/babel" data-presets="react-classic,env">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // Replace with your real Google Script Web App URL Deployment Link
         const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbxRFNA-xKVOl3TDV9GDQvGxmtft2RnnCrMIITFyV0Eg-XJMck_McVs-VtbfUDqEaqy0qA/exec";
 
         const Icon = ({ name, className = "w-4 h-4" }) => {
@@ -118,7 +126,7 @@
                 const id = Date.now();
                 setToasts(prev => [...prev, { id, message, type }]);
                 setTimeout(() => {
-                    setToasts(prev => prev.filter(t => text => t.id !== id));
+                    setToasts(prev => prev.filter(t => t.id !== id));
                 }, 3000);
             };
 
@@ -233,28 +241,30 @@
 
             const pushToGoogleSheet = (updatedCards) => {
                 setSyncStatus('SAVING');
-                const callbackName = 'sync_' + Math.round(100000 * Math.random());
                 
-                window[callbackName] = function(res) {
-                    if (res && res.status === "SUCCESS") {
-                        setSyncStatus('SUCCESS');
-                        showToast("Cloud tables synced safely!");
-                    } else {
-                        setSyncStatus('FAILED');
-                        showToast("Background sync failed", "error");
-                    }
+                fetch(GOOGLE_SHEET_API_URL, {
+                    method: 'POST',
+                    mode: 'no-cors', 
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        action: 'SYNC_ALL',
+                        password: activePassword,
+                        data: JSON.stringify(updatedCards)
+                    })
+                })
+                .then(() => {
+                    setSyncStatus('SUCCESS');
+                    showToast("Cloud tables synced safely!");
                     setTimeout(() => { setSyncStatus('IDLE'); }, 3000);
-
-                    delete window[callbackName];
-                    const scriptEl = document.getElementById(callbackName);
-                    if (scriptEl) scriptEl.remove();
-                };
-
-                const script = document.createElement('script');
-                const cleanPayload = encodeURIComponent(JSON.stringify(updatedCards));
-                script.src = `${GOOGLE_SHEET_API_URL}?action=SYNC_ALL&data=${cleanPayload}&password=${encodeURIComponent(activePassword)}&callback=${callbackName}`;
-                script.id = callbackName;
-                document.body.appendChild(script);
+                })
+                .catch((err) => {
+                    console.error("Transmission Error Stack: ", err);
+                    setSyncStatus('FAILED');
+                    showToast("Background sync failed", "error");
+                    setTimeout(() => { setSyncStatus('IDLE'); }, 3000);
+                });
             };
 
             useEffect(() => {
@@ -357,24 +367,24 @@
 
             if (!isAuthenticated) {
                 return (
-                    <div class="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-4 z-50 overflow-y-auto">
-                        <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.12)_0,transparent_100%)] pointer-events-none"></div>
-                        <div class="w-full max-w-md bg-slate-900/40 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl text-center space-y-8 shadow-2xl relative">
-                            <div class="space-y-3">
-                                <div class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto bg-gradient-to-tr from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/20">
+                    <div className="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-4 z-50 overflow-y-auto">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.12)_0,transparent_100%)] pointer-events-none"></div>
+                        <div className="w-full max-w-md bg-slate-900/40 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl text-center space-y-8 shadow-2xl relative">
+                            <div className="space-y-3">
+                                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto bg-gradient-to-tr from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/20">
                                     <Icon name={isSystemBlocked ? "slash" : "shield-alert"} className="w-8 h-8 text-white" />
                                 </div>
-                                <h1 class="text-2xl font-black tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                                <h1 className="text-2xl font-black tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
                                     {isSystemBlocked ? 'System Locked' : 'Digital Security Vault'}
                                 </h1>
-                                <p class="text-slate-400 text-xs font-medium uppercase tracking-widest">Biometric Database Node Protocol</p>
+                                <p className="text-slate-400 text-xs font-medium uppercase tracking-widest">Biometric Database Node Protocol</p>
                             </div>
 
                             {!isSystemBlocked ? (
-                                <form onSubmit={handleCloudUnlock} class="space-y-6">
-                                    <div class="space-y-2 relative">
-                                        <label class="block text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Master Authentication Code</label>
-                                        <div class="relative">
+                                <form onSubmit={handleCloudUnlock} className="space-y-6">
+                                    <div className="space-y-2 relative">
+                                        <label className="block text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Master Authentication Code</label>
+                                        <div className="relative">
                                             <input 
                                                 type="password"
                                                 pattern="[0-9]*"
@@ -384,28 +394,28 @@
                                                 placeholder="•••••" 
                                                 value={passwordInput} 
                                                 onChange={e => setPasswordInput(e.target.value.replace(/\D/g, ''))} 
-                                                class="w-full px-4 py-4 bg-slate-950/80 border border-slate-800 rounded-2xl text-center tracking-widest font-mono text-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 text-indigo-400 placeholder-slate-700 shadow-inner" 
+                                                className="w-full px-4 py-4 bg-slate-950/80 border border-slate-800 rounded-2xl text-center tracking-widest font-mono text-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 text-indigo-400 placeholder-slate-700 shadow-inner" 
                                             />
                                         </div>
                                     </div>
                                     {authFeedback && (
-                                        <div class="bg-indigo-950/40 border border-indigo-900/50 rounded-xl p-3 text-indigo-300 text-xs flex items-center justify-center space-x-2 animate-pulse">
+                                        <div className="bg-indigo-950/40 border border-indigo-900/50 rounded-xl p-3 text-indigo-300 text-xs flex items-center justify-center space-x-2 animate-pulse">
                                             <Icon name="radio" className="w-4 h-4 shrink-0 text-indigo-400" />
                                             <span>{authFeedback}</span>
                                         </div>
                                     )}
-                                    <button type="submit" class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 active:scale-[0.99] py-4 rounded-2xl font-bold transition-all text-sm tracking-wide text-white shadow-xl shadow-indigo-600/20">
+                                    <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 active:scale-[0.99] py-4 rounded-2xl font-bold transition-all text-sm tracking-wide text-white shadow-xl shadow-indigo-600/20">
                                         Unlock Storage Hub
                                     </button>
                                 </form>
                             ) : (
-                                <div class="bg-red-950/30 border border-red-900/50 rounded-2xl p-4 text-red-400 text-xs font-semibold space-y-1">
+                                <div className="bg-red-950/30 border border-red-900/50 rounded-2xl p-4 text-red-400 text-xs font-semibold space-y-1">
                                     <Icon name="octagon-alert" className="w-5 h-5 mx-auto text-red-500" />
-                                    <p class="tracking-wide text-sm pt-1">Permanent Hardware Lockdown Triggered</p>
-                                    <p class="text-slate-500 font-normal">{authFeedback}</p>
+                                    <p className="tracking-wide text-sm pt-1">Permanent Hardware Lockdown Triggered</p>
+                                    <p className="text-slate-500 font-normal">{authFeedback}</p>
                                 </div>
                             )}
-                            <div class="text-[10px] text-slate-500 font-mono pt-2">Protected Node Instance v4.81</div>
+                            <div className="text-[10px] text-slate-500 font-mono pt-2">Protected Node Instance v4.81</div>
                         </div>
                     </div>
                 );
@@ -414,7 +424,6 @@
             return (
                 <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 transition-colors duration-300 pb-24">
                     
-                    {/* Database Pipeline Status / Toast Notification Stream */}
                     <div className="fixed bottom-6 left-4 right-4 md:left-auto md:right-6 z-50 space-y-2 pointer-events-none max-w-sm w-full">
                         {toasts.map(toast => (
                             <div key={toast.id} className={`p-4 rounded-xl shadow-xl text-white font-medium text-xs flex items-center space-x-3 pointer-events-auto border ${toast.type === 'error' ? 'bg-red-600 border-red-500 shadow-red-600/10' : 'bg-slate-900/95 dark:bg-slate-900 border-slate-800'}`}>
@@ -424,7 +433,6 @@
                         ))}
                     </div>
 
-                    {/* App Header Bar */}
                     <header className="sticky top-0 z-30 glassmorphism border-b border-slate-200/60 dark:border-slate-800/60 px-4 py-3.5 flex justify-between items-center backdrop-blur-md">
                         <div className="flex items-center space-x-3">
                             <div className="p-2.5 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-xl text-white shadow-md shadow-indigo-600/10">
@@ -435,7 +443,6 @@
                                 <span className="text-[9px] block font-mono tracking-widest text-slate-400 uppercase leading-none mt-0.5">Secure Link</span>
                             </div>
                             
-                            {/* Live Sync Pipeline Light Status Node */}
                             <div className="ml-1 flex items-center space-x-1.5 bg-slate-200/50 dark:bg-slate-900 px-2 py-1 rounded-full border border-slate-300/30 dark:border-slate-800">
                                 <div className="relative flex h-2 w-2">
                                     {syncStatus === 'SAVING' && (
@@ -458,7 +465,6 @@
                         </div>
                     </header>
 
-                    {/* Sliding Segmented Filter Controls */}
                     <div className="max-w-md mx-auto px-4 mt-6">
                         <div className="relative bg-slate-200/60 dark:bg-slate-900 border border-slate-300/40 dark:border-slate-800/40 p-1 rounded-xl flex shadow-inner">
                             <div 
@@ -480,14 +486,12 @@
                         </div>
                     </div>
 
-                    {/* Main Workspace Interface Area */}
                     <main className="max-w-[1400px] mx-auto px-4 py-6">
                         <div className="relative mb-6 max-w-xl mx-auto">
                             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"><Icon name="search" className="w-4 h-4" /></span>
                             <input type="text" placeholder={`Search fields inside ${activeCategoryTab}...`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 shadow-sm dark:text-white" />
                         </div>
 
-                        {/* Flex Grid Rendering Pipeline Layer */}
                         {isLoading ? (
                             <div className="text-center py-24 text-slate-400 text-xs font-bold animate-pulse tracking-widest uppercase">Syncing cloud matrix records...</div>
                         ) : (
@@ -504,7 +508,6 @@
                                         const isActionsOpen = !!expandedActions[item.id];
                                         const isPinnedItem = item.isPinned === 'true' || item.isPinned === true;
                                         
-                                        {/* Core Component Block: Traditional Banking Ledger Nodes */}
                                         if (item.assetType === 'BANK') {
                                             return (
                                                 <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className="relative p-5 bg-gradient-to-br from-slate-800 to-zinc-900 border border-zinc-700/60 text-white min-h-[180px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-lg active:scale-[0.99] transition-all duration-200 cursor-pointer group hover:shadow-xl">
@@ -538,7 +541,6 @@
                                                         </div>
                                                     </div>
 
-                                                    {/* Drop-up Drawer Panel Layer overlay */}
                                                     <div className={`absolute inset-x-0 bottom-0 bg-slate-900/95 border-t border-slate-800 p-2 grid grid-cols-4 gap-1 text-center transition-transform duration-200 z-20 ${isActionsOpen ? 'translate-y-0' : 'translate-y-full'}`}>
                                                         <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.accountNumber); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="copy" className="w-4 h-4" /><span className="text-[9px] mt-0.5">Account</span></button>
                                                         <button type="button" onClick={(e) => { e.stopPropagation(); copyText(item.ifscCode); }} className="flex flex-col items-center py-1 text-slate-300 hover:text-white"><Icon name="hash" className="w-4 h-4" /><span className="text-[9px] mt-0.5">IFSC</span></button>
@@ -549,7 +551,6 @@
                                             );
                                         }
 
-                                        {/* Core Component Block: Social Access Identity Profiles */}
                                         if (item.assetType === 'SOCIAL') {
                                             return (
                                                 <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className="relative p-5 bg-gradient-to-br from-indigo-950 to-slate-900 border border-indigo-900/50 text-white min-h-[180px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-lg active:scale-[0.99] transition-all duration-200 cursor-pointer group hover:shadow-xl">
@@ -588,7 +589,6 @@
                                             );
                                         }
 
-                                        {/* Core Component Block: Web Architecture Server Credentials */}
                                         if (item.assetType === 'WEB_CREDENTIAL') {
                                             return (
                                                 <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className="relative p-5 bg-gradient-to-br from-cyan-950 to-slate-900 border border-cyan-900/40 text-white min-h-[180px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-lg active:scale-[0.99] transition-all duration-200 cursor-pointer group hover:shadow-xl">
@@ -627,7 +627,6 @@
                                             );
                                         }
 
-                                        {/* Core Component Block: Secured Encryption Transaction Cards */}
                                         return (
                                             <div key={item.id} onClick={(e) => toggleActions(item.id, e)} className={`relative p-5 ${theme.bg} text-white min-h-[180px] flex flex-col justify-between overflow-hidden rounded-2xl shadow-lg active:scale-[0.99] transition-all duration-200 cursor-pointer group hover:shadow-xl`}>
                                                 <div className="flex justify-between items-start">
@@ -684,7 +683,6 @@
                         )}
                     </main>
 
-                    {/* Form Asset Add Input Modal Architecture Layout */}
                     {isAddOpen && (
                         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-40 transition-all">
                             <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-[20px] sm:rounded-[20px] shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800 max-h-[92vh] flex flex-col">
@@ -707,29 +705,29 @@
 
                                     {formData.assetType === 'BANK' && (
                                         <div className="space-y-3">
-                                            <input type="text" required placeholder="Bank Name (e.g., SBI, ICICI)" value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" required placeholder="Account Holder Name" value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Bank Name (e.g., SBI, ICICI)" value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:text-white" />
+                                            <input type="text" required placeholder="Account Holder Name" value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:text-white" />
                                             <div className="grid grid-cols-2 gap-3">
-                                                <input type="text" pattern="[0-9]*" inputMode="numeric" required placeholder="Account Number" value={formData.accountNumber} onChange={e => setFormData({...formData, accountNumber: e.target.value.replace(/\D/g,'')})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                                <input type="text" required placeholder="IFSC Code" value={formData.ifscCode} onChange={e => setFormData({...formData, ifscCode: e.target.value.toUpperCase()})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                                <input type="text" pattern="[0-9]*" inputMode="numeric" required placeholder="Account Number" value={formData.accountNumber} onChange={e => setFormData({...formData, accountNumber: e.target.value.replace(/\D/g,'')})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono dark:text-white" />
+                                                <input type="text" required placeholder="IFSC Code" value={formData.ifscCode} onChange={e => setFormData({...formData, ifscCode: e.target.value.toUpperCase()})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono dark:text-white" />
                                             </div>
                                         </div>
                                     )}
 
                                     {formData.assetType === 'SOCIAL' && (
                                         <div className="space-y-3">
-                                            <input type="text" required placeholder="Platform Name (e.g., Google, GitHub)" value={formData.socialPlatform} onChange={e => setFormData({...formData, socialPlatform} )} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" required placeholder="Username / Access Email" value={formData.socialUser} onChange={e => setFormData({...formData, socialUser: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" required placeholder="Password Entry Key" value={formData.socialPass} onChange={e => setFormData({...formData, socialPass: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Platform Name (e.g., Google, GitHub)" value={formData.socialPlatform} onChange={e => setFormData({...formData, socialPlatform: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:text-white" />
+                                            <input type="text" required placeholder="Username / Access Email" value={formData.socialUser} onChange={e => setFormData({...formData, socialUser: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono dark:text-white" />
+                                            <input type="text" required placeholder="Password Entry Key" value={formData.socialPass} onChange={e => setFormData({...formData, socialPass: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono dark:text-white" />
                                         </div>
                                     )}
 
                                     {formData.assetType === 'WEB_CREDENTIAL' && (
                                         <div className="space-y-3">
-                                            <input type="text" required placeholder="Title (e.g., AWS Cloud, Router Manager)" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" placeholder="Website Link URL (Optional)" value={formData.websiteUrl} onChange={e => setFormData({...formData, websiteUrl: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" required placeholder="Username / Login Identifier" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                            <input type="text" required placeholder="Password Key String" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Title (e.g., AWS Cloud, Router Manager)" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:text-white" />
+                                            <input type="text" placeholder="Website Link URL (Optional)" value={formData.websiteUrl} onChange={e => setFormData({...formData, websiteUrl: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono dark:text-white" />
+                                            <input type="text" required placeholder="Username / Login Identifier" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono dark:text-white" />
+                                            <input type="text" required placeholder="Password Key String" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono dark:text-white" />
                                         </div>
                                     )}
 
@@ -749,16 +747,16 @@
                                                 placeholder="Card Number" 
                                                 value={formData.cardNumber.replace(/(.{4})/g, '$1 ').trim()} 
                                                 onChange={handleCardNumberChange} 
-                                                className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent tracking-wider font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" 
+                                                className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent tracking-wider font-mono dark:text-white" 
                                             />
                                             <div className="grid grid-cols-2 gap-3">
-                                                <input type="text" required placeholder="Holder Name" value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
-                                                <input type="text" required placeholder="Bank Issuer" value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                                <input type="text" required placeholder="Holder Name" value={formData.cardholderName} onChange={e => setFormData({...formData, cardholderName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:text-white" />
+                                                <input type="text" required placeholder="Bank Issuer" value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:text-white" />
                                             </div>
                                             <div className="grid grid-cols-3 gap-2">
                                                 <select value={formData.expiryMonth} onChange={e => setFormData({...formData, expiryMonth: e.target.value})} className="px-2 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:bg-slate-800 text-slate-700 dark:text-slate-200">{Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}</select>
                                                 <select value={formData.expiryYear} onChange={e => setFormData({...formData, expiryYear: e.target.value})} className="px-2 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent dark:bg-slate-800 text-slate-700 dark:text-slate-200">{yearOptions.map(y => <option key={y} value={y}>{y}</option>)}</select>
-                                                <input type="password" pattern="[0-9]*" inputMode="numeric" required maxLength="4" placeholder="CVV" value={formData.cvv} onChange={e => setFormData({...formData, cvv: e.target.value.replace(/\D/g,'')})} className="px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent text-center font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                                <input type="password" pattern="[0-9]*" inputMode="numeric" required maxLength="4" placeholder="CVV" value={formData.cvv} onChange={e => setFormData({...formData, cvv: e.target.value.replace(/\D/g,'')})} className="px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent text-center font-mono dark:text-white" />
                                             </div>
                                             <div className="flex flex-wrap gap-1.5 pt-1">
                                                 {CARD_NETWORKS.map(net => <button key={net} type="button" onClick={() => setFormData({...formData, cardType: net})} className={`px-2.5 py-1.5 rounded-lg font-semibold border text-[10px] ${formData.cardType === net ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-transparent text-slate-400 border-slate-200 dark:border-slate-800'}`}>{net}</button>)}
@@ -790,7 +788,6 @@
                         </div>
                     )}
 
-                    {/* Modification Properties Dynamic Update Modal */}
                     {isEditOpen && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-40">
                             <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-t-[20px] sm:rounded-[20px] p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto text-xs">
@@ -853,7 +850,6 @@
                         </div>
                     )}
 
-                    {/* Premium Beautiful Yes/No Confirmation Modal Layer */}
                     {deleteConfirmationId && (
                         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
                             <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full border border-slate-100 dark:border-slate-800 text-center space-y-4 shadow-2xl">
