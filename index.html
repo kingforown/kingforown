@@ -118,7 +118,7 @@
                 const id = Date.now();
                 setToasts(prev => [...prev, { id, message, type }]);
                 setTimeout(() => {
-                    setToasts(prev => prev.filter(t => t.id !== id));
+                    setToasts(prev => prev.filter(t => text => t.id !== id));
                 }, 3000);
             };
 
@@ -425,7 +425,7 @@
                     </div>
 
                     {/* App Header Bar */}
-                    <header className="sticky top-0延 z-30 glassmorphism border-b border-slate-200/60 dark:border-slate-800/60 px-4 py-3.5 flex justify-between items-center backdrop-blur-md">
+                    <header className="sticky top-0 z-30 glassmorphism border-b border-slate-200/60 dark:border-slate-800/60 px-4 py-3.5 flex justify-between items-center backdrop-blur-md">
                         <div className="flex items-center space-x-3">
                             <div className="p-2.5 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-xl text-white shadow-md shadow-indigo-600/10">
                                 <Icon name="wallet" className="w-4 h-4" />
@@ -718,7 +718,7 @@
 
                                     {formData.assetType === 'SOCIAL' && (
                                         <div className="space-y-3">
-                                            <input type="text" required placeholder="Platform Name (e.g., Google, GitHub)" value={formData.socialPlatform} onChange={e => setFormData({...formData, socialPlatform: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
+                                            <input type="text" required placeholder="Platform Name (e.g., Google, GitHub)" value={formData.socialPlatform} onChange={e => setFormData({...formData, socialPlatform} )} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
                                             <input type="text" required placeholder="Username / Access Email" value={formData.socialUser} onChange={e => setFormData({...formData, socialUser: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
                                             <input type="text" required placeholder="Password Entry Key" value={formData.socialPass} onChange={e => setFormData({...formData, socialPass: e.target.value})} className="w-full px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-transparent font-mono focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white" />
                                         </div>
